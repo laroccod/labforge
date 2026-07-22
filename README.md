@@ -1,6 +1,8 @@
-# labforge
+# `labforge`
 
-**Turn plain Python scripts into a small scientific desktop app.**
+*By Daniel La Rocco*
+
+## **Turn plain Python scripts into a small scientific desktop app.**
 
 labforge wraps a simulation you already have — a function that produces data,
 a function that plots it, a function that summarizes it — into a polished
@@ -8,8 +10,8 @@ four-section app following the **theory → simulation → visualization →
 analysis** workflow. Pure Python, rendered with [Flet](https://flet.dev); no
 HTML, no JavaScript, no callbacks to wire up.
 
-You write the science. labforge supplies the app shell, the parameter controls
-generated from your function signatures, the cartesian parameter-scan engine,
+You provide the science and labforge supplies the app shell, the parameter controls
+generated from your function signatures, the parameter-scan engine,
 LaTeX rendering for your theory notes, and eight instrument-panel themes, four
 dark and four light.
 
