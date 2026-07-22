@@ -37,3 +37,18 @@ def test_scan_result_helpers():
     assert data.axis("mu") == [0.0, 1.0]
     assert data.values() == [(0.0, 1.0, 10), (1.0, 1.0, 10)]
     assert [params["mu"] for params, _ in data] == [0.0, 1.0]
+
+
+def test_context_injected_only_when_declared():
+    def with_context(mu, context=None):
+        return (mu, context)
+
+    ctx = {"model": "alpha"}
+    # A declared context param is handed the dict at every grid point; the scan
+    # never sweeps it.
+    scalar = run_worker(with_context, {"mu": 1.0}, context=ctx)
+    assert scalar == (1.0, ctx)
+    scanned = run_worker(with_context, {"mu": [1.0, 2.0]}, context=ctx)
+    assert scanned.values() == [(1.0, ctx), (2.0, ctx)]
+    # A worker without a context param is unaffected by a passed context.
+    assert run_worker(worker, {"mu": 0.0, "sigma": 1.0, "n": 5}, context=ctx) == (0.0, 1.0, 5)

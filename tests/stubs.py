@@ -83,6 +83,13 @@ class FakePage:
     def update(self):
         pass
 
+    def run_task(self, handler, *args):
+        # The real page schedules the coroutine on its loop; drive it to
+        # completion here so a fired Run handler is synchronous for tests.
+        import asyncio
+
+        asyncio.run(handler(*args))
+
 
 class ShellFakePage:
     """Richer stand-in supporting the attributes main() sets while wiring the shell."""

@@ -7,6 +7,8 @@ Pure Python, no Flet — unit-testable without a UI.
 import itertools
 from dataclasses import dataclass
 
+from .param import CONTEXT_PARAM, wants_context
+
 
 @dataclass
 class ScanResult:
@@ -43,7 +45,7 @@ class ScanResult:
         return list(dict.fromkeys(params[key] for params, _ in self.points))
 
 
-def run_worker(func, values):
+def run_worker(func, values, context=None):
     """
     Call the worker once, or over the cartesian grid of its scan axes.
 
@@ -57,19 +59,23 @@ def run_worker(func, values):
         The registered worker.
     values: dict
         Parsed control values; list-valued entries are scan axes.
+    context: dict
+        The lab's shared context, injected as a `context` kwarg only when func
+        declares that parameter; the scan grid never sweeps it.
 
     Returns
     -------
     The worker's bare return for a pure-scalar call, or a ScanResult when any
     axis is a list.
     """
+    shared = {CONTEXT_PARAM: context} if wants_context(func) else {}
     axes = {key: value for key, value in values.items() if isinstance(value, list)}
     if not axes:
-        return func(**values)
+        return func(**values, **shared)
 
     fixed = {key: value for key, value in values.items() if key not in axes}
     points = []
     for combo in itertools.product(*axes.values()):
         params = dict(fixed, **dict(zip(axes.keys(), combo)))
-        points.append((params, func(**params)))
+        points.append((params, func(**params, **shared)))
     return ScanResult(keys=list(axes.keys()), points=points)

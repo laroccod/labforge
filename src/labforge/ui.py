@@ -8,10 +8,13 @@ from .mathtext import equation_image
 
 # The app's two typographic voices: a grotesque for prose and a monospace for
 # anything that is data — parameter labels, readouts, tables, telemetry lines.
-# Both resolve by name as macOS system fonts; bundle files via page.fonts to
-# ship the same faces on Windows or in the browser.
-FONT_BODY = "Helvetica Neue"
-FONT_MONO = "Menlo"
+# Both are bundled variable fonts (assets/fonts, registered in shell.build_main),
+# so desktop, browser, Windows and Linux all render the same faces and weights
+# rather than falling back to the platform default. FONT_ASSETS is the family ->
+# asset-path map open() hands to Flet's asset server.
+FONT_BODY = "Inter"
+FONT_MONO = "Roboto Mono"
+FONT_ASSETS = {FONT_BODY: "fonts/Inter.ttf", FONT_MONO: "fonts/RobotoMono.ttf"}
 
 
 def image(data, width=None, height=None):

@@ -29,7 +29,7 @@ def section_controls(entry, state, page):
 
 def build(state, page):
     """Build the tabbed analysis page."""
-    return panel.build("Analysis", state.lab.analyses, state, page, section_controls, EMPTY)
+    return panel.build("Analysis", state.analyses, state, page, section_controls, EMPTY)
 
 
 def render_result(value):

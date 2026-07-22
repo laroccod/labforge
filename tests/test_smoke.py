@@ -12,7 +12,7 @@ import flet as ft
 from labforge.pages import analysis, scroll, simulation, theory, visualization
 from labforge.state import LabState
 
-from stubs import FakePage, ShellFakePage, collect_images, find_first, make_lab
+from stubs import FakePage, ShellFakePage, collect_images, find_first, histogram, make_lab
 
 
 def fresh_state():
@@ -108,6 +108,7 @@ def test_simulation_run_handler_fills_status():
         tree, lambda c: isinstance(c, ft.Text) and "RUN COMPLETE" in (c.value or "")
     )
     assert status is not None
+    assert not button.disabled  # re-enabled once the run settles
 
 
 def test_scroll_layout_builds_and_gates():
@@ -169,6 +170,185 @@ def test_every_theme_builds_the_shell():
         theme_module.use(theme_module.DEFAULT)
 
 
+def test_several_workers_need_a_selection_mechanism():
+    import pytest
+
+    from labforge import Lab
+
+    # No top-bar dropdown exists, so several workers with neither a model
+    # selector nor tabs view have no way to be chosen — caught at build.
+    lab = Lab("multi")
+    lab.add_worker(lambda mu=0.0: [mu])
+    lab.add_worker(lambda kk=1.0: [kk], name="beta")
+    with pytest.raises(ValueError, match="choose among them"):
+        lab.build_main()
+
+
+def test_single_worker_shell_has_no_selector():
+    state_page = ShellFakePage()
+    make_lab().build_main()(state_page)
+    dropdown = find_first(state_page.controls[0], lambda c: isinstance(c, ft.Dropdown))
+    assert dropdown is None
+
+
+def make_choice_lab():
+    from labforge import Lab, Param
+
+    lab = Lab("choicelab")
+
+    def pick(mode="fast", gain=1.0):
+        return [gain if mode == "fast" else -gain]
+
+    lab.add_worker(pick, {"mode": Param(kind="choice", options=["fast", "slow"])})
+    return lab
+
+
+def test_choice_param_renders_a_dropdown():
+    state = LabState(make_choice_lab())
+    tree = simulation.build(state, FakePage())
+    dropdown = find_first(tree, lambda c: isinstance(c, ft.Dropdown))
+    assert dropdown is not None
+    assert [o.key for o in dropdown.options] == ["fast", "slow"]
+    assert dropdown.value == "fast"
+
+
+def make_selector_lab():
+    from labforge import Lab, Param
+
+    lab = Lab("selectorlab")
+    lab.set_theory_selector(
+        "model",
+        Param(kind="choice", options=["Alpha", "Beta"]),
+        lambda selection: f"# {selection}\n\n$$E = {selection}^2$$",
+    )
+    lab.add_worker(lambda x=1.0: [x])
+    return lab
+
+
+def test_theory_selector_page_renders_and_rebuilds():
+    from types import SimpleNamespace
+
+    state = LabState(make_selector_lab())
+    tree = theory.build(state, FakePage())
+
+    # The selector dropdown and the model-driven equation both render.
+    dropdown = find_first(tree, lambda c: isinstance(c, ft.Dropdown))
+    assert dropdown is not None
+    assert [o.key for o in dropdown.options] == ["Alpha", "Beta"]
+    assert [src for src in collect_images(tree) if src]  # the $$...$$ block rendered
+
+    # Selecting a model commits to the shared context and rebuilds the markdown.
+    dropdown.value = "Beta"
+    dropdown.on_select(SimpleNamespace(control=SimpleNamespace(value="Beta")))
+    assert state.context["model"] == "Beta"
+    heading = find_first(tree, lambda c: isinstance(c, ft.Markdown) and "Beta" in (c.value or ""))
+    assert heading is not None
+
+
+def make_tabbed_lab():
+    from labforge import Lab, Param
+
+    lab = Lab("tabbedlab", worker_view="tabs")
+    lab.set_theory_selector(
+        "model", Param(kind="choice", options=["m1", "m2"]), lambda selection: f"# {selection}"
+    )
+
+    def step_a(mu=0.0, context=None):
+        return [mu]
+
+    def step_b(k=1.0, context=None):
+        return [k]
+
+    lab.add_worker(step_a)
+    lab.add_worker(step_b, name="step_b")
+    lab.add_viz(histogram, "Histogram", "Shared across workers.")
+    return lab
+
+
+def test_tabbed_simulation_renders_workers_as_tabs():
+    state = LabState(make_tabbed_lab())
+    tree = simulation.build(state, FakePage())
+
+    # Both workers are tabs, and there is no run gate on the Simulation page.
+    tabbar = find_first(tree, lambda c: isinstance(c, ft.TabBar))
+    assert tabbar is not None
+    assert [t.label for t in tabbar.tabs] == ["step_a", "step_b"]
+    gate = find_first(tree, lambda c: isinstance(c, ft.Text) and c.value == "NO DATA")
+    assert gate is None
+
+    # Running the second worker's tab lights the shared visualization.
+    buttons = []
+    find_first(tree, lambda c: buttons.append(c) if isinstance(c, ft.FilledButton) else False)
+    buttons[-1].on_click(None)
+    assert state.has_data()
+    images = [src for src in collect_images(visualization.build(state, FakePage())) if src]
+    assert images
+
+
+def test_tabbed_shell_has_no_worker_dropdown():
+    from labforge import Lab
+
+    # No Theory selector here, so the only Dropdown that could appear is a
+    # top-bar worker selector — which tabs view must not surface.
+    lab = Lab("barelab", worker_view="tabs")
+    lab.add_worker(lambda mu=0.0: [mu])
+    lab.add_worker(lambda k=1.0: [k], name="second")
+    state_page = ShellFakePage()
+    lab.build_main()(state_page)
+    dropdown = find_first(state_page.controls[0], lambda c: isinstance(c, ft.Dropdown))
+    assert dropdown is None  # workers are Simulation-page tabs, not a top-bar selector
+    # The top bar shows a plain tab-count readout in its place.
+    readout = find_first(
+        state_page.controls[0], lambda c: isinstance(c, ft.Text) and "TABS" in (c.value or "")
+    )
+    assert readout is not None
+
+
+def test_model_selector_drives_the_worker_and_single_sim_tab():
+    from types import SimpleNamespace
+
+    from labforge import Lab, Param
+
+    lab = Lab("modellab")
+    lab.set_theory_selector(
+        "model",
+        Param(kind="choice", options=["Normal", "Gamma"], default="Normal"),
+        lambda selection: f"# {selection}",
+        selects_worker=True,
+    )
+    lab.add_worker(lambda mu=0.0: [mu], {"mu": Param(default=0.0, bounds=(-5, 5))}, name="Normal")
+    lab.add_worker(
+        lambda shape=2.0: [shape], {"shape": Param(default=2.0, bounds=(0.5, 10))}, name="Gamma"
+    )
+
+    state_page = ShellFakePage()
+    lab.build_main()(state_page)
+    tree = state_page.controls[0]
+
+    # No top-bar worker dropdown; a MODELS count readout stands in its place.
+    readout = find_first(tree, lambda c: isinstance(c, ft.Text) and "MODELS" in (c.value or ""))
+    assert readout is not None
+
+    rail = find_first(tree, lambda c: isinstance(c, ft.NavigationRail))
+    rail.on_change(SimpleNamespace(control=SimpleNamespace(selected_index=1)))
+    # Simulation shows the active worker as one tab, with its own control.
+    tabbar = find_first(tree, lambda c: isinstance(c, ft.TabBar))
+    assert [t.label for t in tabbar.tabs] == ["Normal"]
+    assert find_first(tree, lambda c: isinstance(c, ft.Text) and c.value == "mu") is not None
+
+    # The Theory model dropdown switches the active worker.
+    rail.on_change(SimpleNamespace(control=SimpleNamespace(selected_index=0)))
+    model_dd = find_first(tree, lambda c: isinstance(c, ft.Dropdown))
+    model_dd.value = "Gamma"
+    model_dd.on_select(SimpleNamespace(control=SimpleNamespace(value="Gamma")))
+
+    rail.on_change(SimpleNamespace(control=SimpleNamespace(selected_index=1)))
+    tabbar = find_first(tree, lambda c: isinstance(c, ft.TabBar))
+    assert [t.label for t in tabbar.tabs] == ["Gamma"]
+    assert find_first(tree, lambda c: isinstance(c, ft.Text) and c.value == "shape") is not None
+    assert find_first(tree, lambda c: isinstance(c, ft.Text) and c.value == "mu") is None
+
+
 def test_worker_exception_is_surfaced_not_raised():
     from labforge import Lab
 
@@ -183,3 +363,4 @@ def test_worker_exception_is_surfaced_not_raised():
     button.on_click(None)  # must not raise
     status = find_first(tree, lambda c: isinstance(c, ft.Text) and "boom" in (c.value or ""))
     assert status is not None
+    assert not button.disabled  # the finally re-enables Run even on failure

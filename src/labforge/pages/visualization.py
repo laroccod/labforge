@@ -27,4 +27,4 @@ def section_controls(entry, state, page):
 
 def build(state, page):
     """Build the tabbed visualization page."""
-    return panel.build("Visualization", state.lab.vizzes, state, page, section_controls, EMPTY)
+    return panel.build("Visualization", state.vizzes, state, page, section_controls, EMPTY)

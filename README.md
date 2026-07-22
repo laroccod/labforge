@@ -2,15 +2,15 @@
 
 *By Daniel La Rocco*
 
-## **Turn plain Python scripts into a small scientific desktop app.**
+## **Turn plain Python scripts into small scientific desktop apps.**
 
-labforge wraps a simulation you already have — a function that produces data,
+`labforge` wraps a simulation you already have — a function that produces data,
 a function that plots it, a function that summarizes it — into a polished
 four-section app following the **theory → simulation → visualization →
 analysis** workflow. Pure Python, rendered with [Flet](https://flet.dev); no
 HTML, no JavaScript, no callbacks to wire up.
 
-You provide the science and labforge supplies the app shell, the parameter controls
+You provide the science and `labforge` supplies the app shell, the parameter controls
 generated from your function signatures, the parameter-scan engine,
 LaTeX rendering for your theory notes, and eight instrument-panel themes, four
 dark and four light.
@@ -106,7 +106,7 @@ bounds, or a scan spec on a non-worker function raise `ValueError` when the
 app is assembled, never mid-use.
 
 **Parameter scans.** A kwarg declared `scan=True` gets a scan toggle (bounded)
-or a comma-separated field (unbounded). Enter `0, 1, 2` and labforge calls the
+or a comma-separated field (unbounded). Enter `0, 1, 2` and `labforge` calls the
 worker once per point of the cartesian grid across all scanned parameters —
 the worker itself always receives scalars. Downstream functions then receive a
 `ScanResult`: a list of `(params, result)` records with `keys`, `values()` and
@@ -114,7 +114,7 @@ the worker itself always receives scalars. Downstream functions then receive a
 
 **Visualizations.** Functions `viz(data, **kwargs)` returning a matplotlib
 figure (bare or `(fig, ax)`). Each gets a tab with its own controls and a
-Render button. Figures are yours — labforge only serializes them; the house
+Render button. Figures are yours — `labforge` only serializes them; the house
 style (`labforge.style(fig, ax)`) is strictly opt-in.
 
 **Analyses.** Functions `analysis(data, **kwargs)` — the return shape picks
@@ -127,6 +127,35 @@ the rendering:
 | `str` | markdown |
 | Figure or `(fig, ax)` | image |
 | anything else | its `repr` |
+
+**Multiple workers.** Call `add_worker` more than once for a lab with several
+workers. Each worker keeps its own workspace — its controls, its last result and
+its per-tab settings — and the `add_viz` / `add_analysis` calls after each
+`add_worker` attach that worker's own tabs, so switching workers and back
+restores exactly what was there. Several workers need a way to choose among them
+(checked at build): a `selects_worker` model selector, or `worker_view="tabs"`
+to lay the workers out as Simulation-page tabs.
+
+The clean way is a Theory-page selector with `selects_worker=True`: its options
+name the workers, so choosing one both swaps the theory and makes that worker
+active. There is no top-bar dropdown; the Simulation page shows the active
+worker as a single tab, matching the tabbed Visualization and Analysis pages.
+The demo (`examples/demo_lab.py`) uses this to switch between a normal and a
+gamma model:
+
+```python
+lab.set_theory_selector(
+    "model",
+    Param(kind="choice", options=["Normal", "Gamma"]),
+    theory_for,                 # theory_for(selection) -> markdown
+    label="Distribution",
+    selects_worker=True,
+)
+lab.add_worker(sample, {...}, name="Normal")   # its own viz/analysis tabs
+lab.add_worker(sample_gamma, {...}, name="Gamma")
+```
+
+![The Theory model selector driving the active worker: choosing Gamma shows the gamma theory and the gamma worker as a single Simulation tab](https://raw.githubusercontent.com/laroccod/labforge/main/assets/multi_worker.png)
 
 **Theory.** A markdown file or string. Displayed `$$...$$` equations render as
 crisp images — through your system LaTeX toolchain when one is installed
@@ -176,7 +205,7 @@ Requires Python ≥ 3.10.
 pip install labforge
 ```
 
-Or from a clone, to hack on it:
+Or from a clone, if you want to work on the code directly:
 
 ```bash
 git clone https://github.com/laroccod/labforge.git

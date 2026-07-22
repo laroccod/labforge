@@ -1,16 +1,22 @@
 """
 Demo lab
 
-The labforge README example in runnable form: a Gaussian sampler worker, a
-histogram (with fitted density) and Q-Q plot visualization, and a moments
-analysis, each handling both a single run and a parameter scan. Launch with
-`python examples/demo_lab.py`; add `--browser [port]` to serve it to the
-default web browser instead, `--scroll` for one continuous scrolling page
+Two samplers on one lab, to show off multiple workers and the Theory-page model
+selector. A normal worker carries a histogram (with fitted density), a Q-Q plot
+and a moments table; a gamma worker carries its own histogram and a
+method-of-moments fit. The Theory-page dropdown is the single model switch
+(selects_worker=True): choosing Normal or Gamma swaps the theory math and makes
+that worker active, so the Simulation page shows its parameters as one tab and
+the Visualization and Analysis pages show its own tabs. No top-bar worker
+dropdown is needed. Each worker handles both a single run and a parameter scan.
+Launch with `python examples/demo_lab.py`; add `--browser [port]` to serve it to
+the default web browser instead, `--scroll` for one continuous scrolling page
 instead of four, and/or `--theme <name>` to try a colour scheme (see
 labforge.themes()).
 """
 
 import argparse
+from math import gamma as gamma_func
 from pathlib import Path
 from statistics import NormalDist
 
@@ -20,12 +26,32 @@ import numpy as np
 import labforge
 from labforge import Lab, Param, ScanResult
 
-lab = Lab("gausslab")
-lab.set_theory(Path(__file__).with_name("theory.md"))
+lab = Lab("statlab")
+
+# The Theory page carries a dropdown that swaps the whole page between the two
+# families; each option maps to its own markdown source.
+THEORY = {
+    "Normal": Path(__file__).with_name("theory.md").read_text(encoding="utf-8"),
+    "Gamma": Path(__file__).with_name("theory_gamma.md").read_text(encoding="utf-8"),
+}
+
+
+def theory_for(model):
+    """The theory markdown for the selected distribution."""
+    return THEORY[model]
+
+
+lab.set_theory_selector(
+    "model",
+    Param(kind="choice", options=["Normal", "Gamma"], default="Normal"),
+    theory_for,
+    label="Distribution",
+    selects_worker=True,
+)
 
 
 def sample(mu=0.0, sigma=1.0, n=2000, seed=42):
-    """Draw n Gaussian variates; reproducible for a given seed."""
+    """Draw n normal variates; reproducible for a given seed."""
     return np.random.default_rng(seed).normal(mu, sigma, n)
 
 
@@ -37,6 +63,7 @@ lab.add_worker(
         "n": Param(kind="int", default=2000, bounds=(10, 100_000)),
         "seed": "int",
     },
+    name="Normal",
 )
 
 
@@ -128,6 +155,92 @@ lab.add_analysis(
     "The sample mean and standard deviation estimate μ and σ directly, and "
     "for the normal family they are also the maximum-likelihood estimators. "
     "The standard error of the mean shrinks like 1/√n.",
+)
+
+
+# The gamma worker. Registering a second worker turns the top bar into a model
+# selector, and add_viz/add_analysis below attach to this worker, not the normal
+# one, so each model owns its own tabs.
+def sample_gamma(shape=2.0, scale=1.0, n=2000, seed=42):
+    """Draw n gamma variates; reproducible for a given seed."""
+    return np.random.default_rng(seed).gamma(shape, scale, n)
+
+
+lab.add_worker(
+    sample_gamma,
+    {
+        "shape": Param(default=2.0, bounds=(0.5, 10), scan=True),
+        "scale": Param(default=1.0, bounds=(0.1, 4), scan=True),
+        "n": Param(kind="int", default=2000, bounds=(10, 100_000)),
+        "seed": "int",
+    },
+    name="Gamma",
+)
+
+
+def gamma_density(x, shape, scale):
+    """The gamma density at x for shape k and scale θ."""
+    return x ** (shape - 1) * np.exp(-x / scale) / (scale**shape * gamma_func(shape))
+
+
+def gamma_histogram(data, bins=40):
+    """Density histogram of the draw; a scan overlays one histogram per point."""
+    fig, ax = plt.subplots(figsize=(7, 3.4))
+    if isinstance(data, ScanResult):
+        for params, draws in data:
+            label = ", ".join(f"{key} = {params[key]:g}" for key in data.keys)
+            ax.hist(draws, bins=bins, density=True, alpha=0.5, label=label)
+    else:
+        colors = labforge.palette()
+        ax.hist(data, bins=bins, density=True, color=colors.data, label="draw")
+        # The method-of-moments fit: shape and scale from the sample mean and variance.
+        mean, var = np.mean(data), np.var(data, ddof=1)
+        shape, scale = mean**2 / var, var / mean
+        x = np.linspace(np.min(data), np.max(data), 400)
+        ax.plot(
+            x,
+            gamma_density(x, shape, scale),
+            color=colors.model,
+            linewidth=1.6,
+            label="fitted density",
+        )
+    ax.legend()
+    ax.set_xlabel("x")
+    ax.set_ylabel("density")
+    labforge.style(fig, ax)
+    return fig, ax
+
+
+lab.add_viz(
+    gamma_histogram,
+    "Histogram",
+    "Density-normalized histogram of the most recent draw, with the "
+    "method-of-moments gamma density on top. On a scan, one translucent "
+    "histogram per grid point shows how the shape sharpens and the scale "
+    "stretches the density.",
+    {"bins": Param(kind="int", default=40, bounds=(5, 200))},
+)
+
+
+def gamma_fit(data):
+    """Method-of-moments shape and scale from the sample moments; one row per grid point on a scan."""
+
+    def row(draws):
+        mean, var = float(np.mean(draws)), float(np.var(draws, ddof=1))
+        return {"shape": mean**2 / var, "scale": var / mean, "mean": mean}
+
+    if isinstance(data, ScanResult):
+        return [{**params, **row(draws)} for params, draws in data]
+    return row(data)
+
+
+lab.add_analysis(
+    gamma_fit,
+    "Fit",
+    "The mean is kθ and the variance is kθ², so the method of moments recovers "
+    "the shape as X̄²/s² and the scale as s²/X̄. The maximum-likelihood shape "
+    "has no closed form for this family, so the sample moments are the quick "
+    "estimate.",
 )
 
 

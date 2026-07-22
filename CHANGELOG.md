@@ -2,6 +2,45 @@
 
 Notable changes to labforge. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **`choice` param** — `Param(kind="choice", options=[...])` renders a Dropdown
+  and commits the selected string like any other control. The default must be
+  one of the options and the options must be non-empty (checked at registration);
+  a choice cannot be scanned.
+- **Theory-page selector** — `set_theory_selector(name, param, theory)` puts a
+  `choice` control on the Theory page whose value both rebuilds the theory
+  markdown (via a `theory(selection) -> markdown` callback) and writes the lab's
+  shared context. The static `set_theory` behavior is unchanged; the selector
+  takes precedence when both are set.
+- **Model-driven worker selector** — `set_theory_selector(..., selects_worker=True)`
+  makes the Theory dropdown the model switch: its options name registered workers,
+  and choosing one makes that worker active. The Simulation page then shows the
+  active worker as a single tab so it matches the tabbed Visualization and
+  Analysis pages.
+- **Shared context** — a per-session lab-level context that the Theory selector
+  writes and any worker, viz or analysis reads by declaring a `context`
+  parameter (injected at call time, never rendered as a control). So a choice is
+  made once and every page sees it.
+- **Multiple workers** — call `add_worker` more than once to build a lab with
+  several workers. Each worker keeps its own workspace (controls, last result,
+  and per-tab settings), and the `add_viz` / `add_analysis` calls after each
+  `add_worker` attach that worker's own tabs. Several workers need a way to choose
+  among them, checked at build: a `selects_worker` model selector, or
+  `worker_view="tabs"` to lay the workers out as Simulation-page tabs (sharing one
+  set of visualizations and analyses). There is no top-bar worker dropdown.
+  Single-worker labs are unchanged. (`worker_view` is `"panels"` by default, or
+  `"tabs"`.)
+- **Bundled fonts** — the app now ships its typefaces (Inter and Roboto Mono),
+  so the browser view renders the same faces and weights as the desktop window
+  instead of falling back to the platform default.
+- **Clearer theory errors** — `set_theory` now raises on a mistyped file path
+  (a missing `Path`, or a bare `".md"` string) instead of silently rendering the
+  path as a one-line page.
+- **Non-blocking Run** — the worker now runs off the UI thread, so a slow worker
+  no longer freezes the window. Run shows a `RUNNING…` status and disables the
+  button until the run settles. Fast workers are unaffected.
+
 ## 0.1.1 — 2026-07-22
 
 Packaging and documentation only; no functional change.

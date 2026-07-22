@@ -50,6 +50,49 @@ def color_scheme(theme):
     )
 
 
+def worker_selector(state):
+    """
+    The top bar's right-hand readout. Workers are switched on the Simulation page
+    (tabs view) or by the Theory-page model selector (selects_worker), never in
+    the top bar, so this is a plain, static readout of the active model or the
+    worker count — never a control.
+    """
+    label = ft.Text(
+        "WORKER",
+        style=ft.TextStyle(
+            size=11, letter_spacing=2, font_family=ui.FONT_MONO, color=ft.Colors.ON_SURFACE_VARIANT
+        ),
+    )
+
+    def readout_row(text):
+        return ft.Row(
+            spacing=6,
+            controls=[
+                label,
+                ft.Text(
+                    text,
+                    style=ft.TextStyle(
+                        size=11,
+                        letter_spacing=2,
+                        font_family=ui.FONT_MONO,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                ),
+            ],
+        )
+
+    # In tabs view the workers are Simulation-page tabs; a plain count stands in.
+    if state.tabbed:
+        return readout_row(f"· {len(state.lab.workers)} TABS")
+    # A model selector switches the worker from the Theory page; a static count
+    # stands in (the active model would go stale — the top bar is not rebuilt
+    # when the selection changes).
+    if state.lab.selects_worker:
+        return readout_row(f"· {len(state.lab.workers)} MODELS")
+    # Otherwise a single-worker lab: name the one worker.
+    return readout_row(f"· {state.active.upper()}")
+
+
 def build_main(lab, layout="pages", theme=themes.DEFAULT):
     """
     Return the Flet entry point — a main(page) callable — for a Lab.
@@ -80,6 +123,10 @@ def build_main(lab, layout="pages", theme=themes.DEFAULT):
     # except immutable config.
     def main(page):
         page.title = lab.page_title
+        # Register the bundled variable fonts (served from assets_dir, set in
+        # open()); both carry a wght axis so ft.FontWeight resolves to real
+        # weights, not synthetic bold.
+        page.fonts = dict(ui.FONT_ASSETS)
         # The mode matches the palette so widget defaults the scheme does not
         # name (shadows, ripples, error tones) derive with the right brightness.
         page.theme_mode = ft.ThemeMode.DARK if palette.mode == "dark" else ft.ThemeMode.LIGHT
@@ -109,44 +156,9 @@ def build_main(lab, layout="pages", theme=themes.DEFAULT):
             content=ft.Icon(lab.icon or ft.Icons.VIEW_IN_AR, size=18, color=ft.Colors.ON_PRIMARY),
         )
 
-        # Thin header strip: mark and tracked mono-caps title on the left, a
-        # factual mono readout (the registered worker) on the right.
-        top_bar = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=20, vertical=10),
-            bgcolor=ft.Colors.SURFACE_CONTAINER_LOWEST,
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Row(
-                        spacing=12,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            app_mark,
-                            ft.Text(
-                                lab.title.upper(),
-                                style=ft.TextStyle(
-                                    size=14,
-                                    weight=ft.FontWeight.W_700,
-                                    letter_spacing=3,
-                                    font_family=ui.FONT_MONO,
-                                ),
-                            ),
-                        ],
-                    ),
-                    ft.Text(
-                        f"WORKER · {lab.worker.func.__name__.upper()}",
-                        style=ft.TextStyle(
-                            size=11,
-                            letter_spacing=2,
-                            font_family=ui.FONT_MONO,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                        ),
-                    ),
-                ],
-            ),
-        )
-
+        # Layout builds the body. Worker switching happens inside the pages
+        # (Simulation tabs, or the Theory model selector), so the top bar needs
+        # no rebuild hook.
         if layout == "scroll":
             # One continuous page under the top bar; no rail, no navigation.
             body = ft.Container(expand=True, padding=24, content=scroll.build(state, page))
@@ -204,6 +216,37 @@ def build_main(lab, layout="pages", theme=themes.DEFAULT):
                     content,
                 ],
             )
+
+        # Thin header strip: mark and tracked mono-caps title on the left; on the
+        # right a factual worker readout, or a selector when the lab has several.
+        worker_readout = worker_selector(state)
+        top_bar = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=20, vertical=10),
+            bgcolor=ft.Colors.SURFACE_CONTAINER_LOWEST,
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Row(
+                        spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            app_mark,
+                            ft.Text(
+                                lab.title.upper(),
+                                style=ft.TextStyle(
+                                    size=14,
+                                    weight=ft.FontWeight.W_700,
+                                    letter_spacing=3,
+                                    font_family=ui.FONT_MONO,
+                                ),
+                            ),
+                        ],
+                    ),
+                    worker_readout,
+                ],
+            ),
+        )
 
         page.add(
             ft.Column(

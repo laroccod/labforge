@@ -7,6 +7,7 @@ import flet as ft
 
 from .. import ui
 from ..controls import build_control
+from ..param import CONTEXT_PARAM, wants_context
 
 
 def section_controls(entry, state, values, page, action, output, show):
@@ -37,6 +38,10 @@ def section_controls(entry, state, values, page, action, output, show):
 
     def refresh():
         kwargs = {name: binding.read() for name, binding in bindings.items()}
+        # Hand the shared context to a viz/analysis that declares it, alongside
+        # the worker data — the same injection the worker itself receives.
+        if wants_context(entry.func):
+            kwargs[CONTEXT_PARAM] = state.context
         try:
             show(entry.func(state.data, **kwargs))
             status.value = ""
@@ -62,7 +67,7 @@ def section_controls(entry, state, values, page, action, output, show):
     return [*header, controls_card, output]
 
 
-def build(title, entries, state, page, section, empty):
+def build(title, entries, state, page, section, empty, gated=True):
     """
     Build a tabbed page — one tab per registered entry, behind the run gate —
     or the placeholder / run-gate scaffold when there is nothing to show.
@@ -73,10 +78,14 @@ def build(title, entries, state, page, section, empty):
         section(entry, state, page) -> list of controls for one entry.
     empty: str
         Placeholder text shown when nothing is registered.
+    gated: bool
+        Show the run gate until data exists. The viz/analysis pages gate on the
+        worker output they consume; the tabbed Simulation page passes False,
+        since it is where the running happens.
     """
     if not entries:
         return ui.page_scaffold(title, [ui.placeholder(empty)])
-    if not state.has_data():
+    if gated and not state.has_data():
         return ui.page_scaffold(title, [ui.needs_run()])
 
     # Flet 0.86 Tabs is a controller wrapping a separate TabBar and TabBarView,

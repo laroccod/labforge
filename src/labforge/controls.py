@@ -32,7 +32,7 @@ class ControlBinding:
     read: callable
 
 
-def build_control(name, param, values, page):
+def build_control(name, param, values, page, on_change=None):
     """
     Build the control row for one Param.
 
@@ -50,6 +50,10 @@ def build_control(name, param, values, page):
         read at build time and committed to on every change.
     page: ft.Page
         Needed to flush live readout updates during a slider drag.
+    on_change: callable
+        Optional callback(value) fired after a choice commits — the Theory-page
+        selector uses it to rebuild the markdown its selection drives. Ignored
+        by every other kind.
 
     Returns
     -------
@@ -57,6 +61,8 @@ def build_control(name, param, values, page):
     """
     label = param.label or name
     value = values.get(name, param.default)
+    if param.kind == "choice":
+        return choice_control(name, label, param, value, values, on_change)
     if param.kind == "tuple":
         return tuple_control(name, label, param, value, values)
     if param.bounds is None and not param.scan:
@@ -209,6 +215,41 @@ def tuple_control(name, label, param, value, values):
         controls=[ft.Text(label, width=120, style=MONO), *fields],
     )
     return ControlBinding(row=row, read=read)
+
+
+def choice_control(name, label, param, value, values, on_change):
+    """
+    A choice param: a Dropdown over the option strings.
+
+    Commits the selected string to values like any other control. When on_change
+    is given it fires after the commit with the new value, so a page can react to
+    the selection (the Theory selector rebuilds its markdown this way).
+    """
+    if value not in param.options:  # a stale value from an edited spec
+        value = param.default
+    dropdown = ft.Dropdown(
+        label=label,
+        value=value,
+        options=[ft.DropdownOption(key=option, text=option) for option in param.options],
+        dense=True,
+        text_style=MONO,
+        label_style=MONO_LABEL,
+        border_color=ft.Colors.OUTLINE_VARIANT,
+        border_radius=2,
+        width=260,
+    )
+
+    def read():
+        values[name] = dropdown.value
+        return dropdown.value
+
+    def on_select(e):
+        read()
+        if on_change is not None:
+            on_change(dropdown.value)
+
+    dropdown.on_select = on_select
+    return ControlBinding(row=dropdown, read=read)
 
 
 def slider_row(label, slider, readout):

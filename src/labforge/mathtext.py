@@ -70,6 +70,10 @@ def render_png(latex, fontsize, usetex):
     rc = {"text.usetex": usetex}
     if usetex:
         rc["text.latex.preamble"] = LATEX_PREAMBLE
+    else:
+        # Computer Modern, not matplotlib's sans-serif default, so the fallback
+        # keeps a serif math voice near the usetex path's Euler.
+        rc["mathtext.fontset"] = "cm"
     with plt.rc_context(rc):
         fig = plt.figure()
         # Displayed equations get display style — full-size fractions, sum

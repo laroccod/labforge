@@ -15,7 +15,7 @@ class Param:
     Parameters
     ----------
     kind: str
-        "scalar" (float), "int", or "tuple".
+        "scalar" (float), "int", "tuple", or "choice".
     default: object
         Starting value; filled from the function signature default when None.
     bounds: tuple
@@ -29,6 +29,8 @@ class Param:
         Tuple length (kind "tuple" only).
     label: str
         Control label; the kwarg name when omitted.
+    options: list
+        The allowed strings of a "choice" param; rendered as a Dropdown.
     """
 
     kind: str = "scalar"
@@ -38,6 +40,17 @@ class Param:
     scan: bool = False
     size: int = 2
     label: str = None
+    options: list = None
+
+
+# The reserved parameter name a worker, viz or analysis function declares to be
+# handed the lab's shared context dict at call time. It never becomes a control.
+CONTEXT_PARAM = "context"
+
+
+def wants_context(func):
+    """True when func declares a `context` parameter for the shared lab context."""
+    return CONTEXT_PARAM in inspect.signature(func).parameters
 
 
 # Shorthand strings accepted in spec dicts, checked before the N-tuple pattern.
@@ -118,6 +131,8 @@ def normalize_spec(func, spec, skip_first=False, allow_scan=True):
         p
         for p in parameters
         if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        # The shared-context parameter is injected at call time, not a control.
+        and p.name != CONTEXT_PARAM
     ]
     # A **kwargs function can take spec keys its signature never names.
     has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters)
@@ -164,10 +179,24 @@ def validate_param(func, name, param, allow_scan):
     bounded params, so controls.py can trust both.
     """
     where = f"{func.__name__} parameter {name!r}"
-    if param.kind not in ("scalar", "int", "tuple"):
+    if param.kind not in ("scalar", "int", "tuple", "choice"):
         raise ValueError(f"{where}: unknown kind {param.kind!r}.")
     if param.scan and not allow_scan:
         raise ValueError(f"{where}: scan specs are only valid on the worker.")
+    if param.kind == "choice":
+        # A discrete selection from a fixed, non-empty option list; the committed
+        # value is always one of the option strings, so it cannot be scanned.
+        if not param.options:
+            raise ValueError(f"{where}: a choice param needs a non-empty options list.")
+        if param.scan:
+            raise ValueError(f"{where}: choice params cannot be scanned.")
+        param.options = [str(option) for option in param.options]
+        param.default = str(param.default)
+        if param.default not in param.options:
+            raise ValueError(
+                f"{where}: default {param.default!r} is not one of options {param.options}."
+            )
+        return
     if param.kind == "tuple":
         if param.scan:
             raise ValueError(f"{where}: tuple params cannot be scanned.")

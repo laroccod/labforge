@@ -7,7 +7,7 @@ default resolution, and the registration-time ValueErrors.
 
 import pytest
 
-from labforge.param import Param, normalize_spec, parse_shorthand
+from labforge.param import Param, normalize_spec, parse_shorthand, wants_context
 
 
 def worker(mu=0.0, sigma=1.0, n=2000):
@@ -76,3 +76,40 @@ def test_var_keyword_accepts_extra_spec_keys():
 
     spec = normalize_spec(flexible, {"gain": Param(default=1.0)})
     assert spec["gain"].default == 1.0
+
+
+def choice_worker(model="a", gain=1.0):
+    return model, gain
+
+
+def test_choice_param_validates_and_resolves():
+    spec = normalize_spec(choice_worker, {"model": Param(kind="choice", options=["a", "b", "c"])})
+    # Default is inferred from the signature and confirmed to be an option.
+    assert spec["model"].default == "a"
+    assert spec["model"].options == ["a", "b", "c"]
+    # A choice from a spec default that is not in the signature still validates.
+    spec = normalize_spec(
+        choice_worker, {"model": Param(kind="choice", default="b", options=["a", "b"])}
+    )
+    assert spec["model"].default == "b"
+
+
+def test_choice_param_registration_errors():
+    with pytest.raises(ValueError, match="non-empty options"):
+        normalize_spec(choice_worker, {"model": Param(kind="choice", options=[])})
+    with pytest.raises(ValueError, match="not one of options"):
+        normalize_spec(choice_worker, {"model": Param(kind="choice", default="z", options=["a"])})
+    with pytest.raises(ValueError, match="cannot be scanned"):
+        normalize_spec(
+            choice_worker, {"model": Param(kind="choice", options=["a", "b"], scan=True)}
+        )
+
+
+def test_context_parameter_is_never_a_control():
+    def with_context(mu=0.0, context=None):
+        return mu, context
+
+    spec = normalize_spec(with_context, None)
+    assert list(spec) == ["mu"]  # context is injected at call time, not a control
+    assert wants_context(with_context)
+    assert not wants_context(choice_worker)
