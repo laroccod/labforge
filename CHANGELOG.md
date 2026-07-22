@@ -2,7 +2,16 @@
 
 Notable changes to labforge. Versions follow [semantic versioning](https://semver.org).
 
-## 0.1.0 — unreleased
+## 0.1.1 — 2026-07-22
+
+Packaging and documentation only; no functional change.
+
+- Complete PyPI metadata: `readme`, keywords, trove classifiers, and project
+  URLs, so the project page renders the README and links back to the repository.
+- README image links use absolute URLs, so screenshots and the theme gallery
+  render on the PyPI project page rather than showing as broken images.
+
+## 0.1.0 — 2026-07-22
 
 Initial release.
 

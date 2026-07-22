@@ -15,7 +15,7 @@ generated from your function signatures, the parameter-scan engine,
 LaTeX rendering for your theory notes, and eight instrument-panel themes, four
 dark and four light.
 
-![The demo lab's Simulation and Visualization pages side by side](assets/screenshot.png)
+![The demo lab's Simulation and Visualization pages side by side](https://raw.githubusercontent.com/laroccod/labforge/main/assets/screenshot.png)
 
 ## Quick start
 
@@ -163,14 +163,20 @@ the theme's ink:
 
 | | |
 | --- | --- |
-| `paper` ![paper](assets/theme_paper.png) | `mint` ![mint](assets/theme_mint.png) |
-| `glacier` ![glacier](assets/theme_glacier.png) | `lavender` ![lavender](assets/theme_lavender.png) |
-| `retro_green` ![retro_green](assets/theme_retro_green.png) | `instrument` ![instrument](assets/theme_instrument.png) |
-| `neon_violet` ![neon_violet](assets/theme_neon_violet.png) | `neon_gold` ![neon_gold](assets/theme_neon_gold.png) |
+| `paper` ![paper](https://raw.githubusercontent.com/laroccod/labforge/main/assets/theme_paper.png) | `mint` ![mint](https://raw.githubusercontent.com/laroccod/labforge/main/assets/theme_mint.png) |
+| `glacier` ![glacier](https://raw.githubusercontent.com/laroccod/labforge/main/assets/theme_glacier.png) | `lavender` ![lavender](https://raw.githubusercontent.com/laroccod/labforge/main/assets/theme_lavender.png) |
+| `retro_green` ![retro_green](https://raw.githubusercontent.com/laroccod/labforge/main/assets/theme_retro_green.png) | `instrument` ![instrument](https://raw.githubusercontent.com/laroccod/labforge/main/assets/theme_instrument.png) |
+| `neon_violet` ![neon_violet](https://raw.githubusercontent.com/laroccod/labforge/main/assets/theme_neon_violet.png) | `neon_gold` ![neon_gold](https://raw.githubusercontent.com/laroccod/labforge/main/assets/theme_neon_gold.png) |
 
 ## Install
 
-Requires Python ≥ 3.10. Not yet on PyPI — install from a clone:
+Requires Python ≥ 3.10.
+
+```bash
+pip install labforge
+```
+
+Or from a clone, to hack on it:
 
 ```bash
 git clone https://github.com/laroccod/labforge.git
