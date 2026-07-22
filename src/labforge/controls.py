@@ -1,0 +1,278 @@
+"""
+Param -> a Flet control row plus a read() closure for its current value.
+"""
+
+from dataclasses import dataclass
+
+import flet as ft
+
+from .ui import FONT_MONO
+
+# Parameter names and values are data, so every label, readout and field in a
+# control row speaks the app's monospace voice.
+MONO = ft.TextStyle(size=13, font_family=FONT_MONO)
+MONO_LABEL = ft.TextStyle(size=12, font_family=FONT_MONO)
+
+
+@dataclass
+class ControlBinding:
+    """
+    One built control row and its value accessor.
+
+    Parameters
+    ----------
+    row: Control
+        The labelled row to place in the page tree.
+    read: callable
+        Zero-arg closure returning the current parsed value (scalar, tuple,
+        or list of scan values).
+    """
+
+    row: object
+    read: callable
+
+
+def build_control(name, param, values, page):
+    """
+    Build the control row for one Param.
+
+    Every control commits to values as it changes, so edits survive navigation
+    even before the next Run; read() is also what Run, Render and Compute pull.
+
+    Parameters
+    ----------
+    name: str
+        The kwarg name; keys the values dict and labels the row by default.
+    param: Param
+        The normalized spec (default resolved, step filled for bounded kinds).
+    values: dict
+        The live values dict (state.worker_values or a per-tab kwargs dict);
+        read at build time and committed to on every change.
+    page: ft.Page
+        Needed to flush live readout updates during a slider drag.
+
+    Returns
+    -------
+    ControlBinding for the row.
+    """
+    label = param.label or name
+    value = values.get(name, param.default)
+    if param.kind == "tuple":
+        return tuple_control(name, label, param, value, values)
+    if param.bounds is None and not param.scan:
+        return text_control(name, label, param, value, values)
+    if param.bounds is None:
+        return scan_control(name, label, param, value, values)
+    if not param.scan:
+        return slider_control(name, label, param, value, values, page)
+    return toggled_control(name, label, param, value, values, page)
+
+
+def slider_control(name, label, param, value, values, page):
+    """A bounded param: a slider with a live readout."""
+    lo, hi = param.bounds
+    if isinstance(value, list):  # scan values left over from a stale spec edit
+        value = param.default
+    # Built here and returned inside the tree, so it is mounted before any drag
+    # fires; on_change mutates it and flushes via page.update(), never
+    # readout.update(), which Flet 0.86 drops.
+    readout = ft.Text(format_scalar(param, value), width=64, style=MONO)
+    slider = ft.Slider(
+        min=lo,
+        max=hi,
+        divisions=max(1, round((hi - lo) / param.step)),
+        value=value,
+        label="{value}",
+    )
+
+    def on_change(e):
+        readout.value = format_scalar(param, cast(param, e.control.value))
+        page.update()
+
+    def on_commit(e):
+        values[name] = cast(param, e.control.value)
+
+    slider.on_change = on_change
+    slider.on_change_end = on_commit  # commit on release, not on every frame
+
+    def read():
+        return cast(param, slider.value)
+
+    return ControlBinding(row=slider_row(label, slider, readout), read=read)
+
+
+def text_control(name, label, param, value, values):
+    """An unbounded scalar or int: a validated text field."""
+    field = ft.TextField(
+        label=label,
+        value=format_scalar(param, value),
+        width=160,
+        text_style=MONO,
+        label_style=MONO_LABEL,
+    )
+
+    def read():
+        parsed = parse_scalar(param, field.value, fallback=values.get(name, param.default))
+        values[name] = parsed
+        return parsed
+
+    field.on_change = lambda e: read()
+    return ControlBinding(row=field, read=read)
+
+
+def scan_control(name, label, param, value, values):
+    """An unbounded scan param: always a comma-separated values field."""
+    field = ft.TextField(
+        label=f"{label} (comma-separated to scan)",
+        value=format_values(param, value),
+        width=260,
+        text_style=MONO,
+        label_style=MONO_LABEL,
+    )
+
+    def read():
+        parsed = parse_values(param, field.value, fallback=values.get(name, param.default))
+        values[name] = parsed
+        return parsed
+
+    field.on_change = lambda e: read()
+    return ControlBinding(row=field, read=read)
+
+
+def toggled_control(name, label, param, value, values, page):
+    """
+    A bounded scan param: a slider row with a scan Switch.
+
+    The switch swaps the content of a mounted Container between the slider and a
+    comma-list field — the same mutate-in-place pattern the pages use for their
+    result panes. Starting from a list value (a scan committed earlier) restores
+    scan mode.
+    """
+    scanning = isinstance(value, list)
+    slider_binding = slider_control(
+        name, label, param, value if not scanning else param.default, values, page
+    )
+    field = ft.TextField(
+        label=f"{label} values",
+        value=format_values(param, value),
+        width=220,
+        text_style=MONO,
+        label_style=MONO_LABEL,
+    )
+    holder = ft.Container(content=field if scanning else slider_binding.row, expand=True)
+    switch = ft.Switch(label="SCAN", value=scanning, label_position=ft.LabelPosition.RIGHT)
+
+    def read():
+        if switch.value:
+            parsed = parse_values(param, field.value, fallback=values.get(name, param.default))
+        else:
+            parsed = slider_binding.read()
+        values[name] = parsed
+        return parsed
+
+    def on_toggle(e):
+        if switch.value:
+            # Carry the slider's value across, so switching to scan starts there.
+            field.value = format_values(param, slider_binding.read())
+            holder.content = field
+        else:
+            holder.content = slider_binding.row
+        read()
+        page.update()
+
+    switch.on_change = on_toggle
+    field.on_change = lambda e: read()
+    row = ft.Row(vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[holder, switch])
+    return ControlBinding(row=row, read=read)
+
+
+def tuple_control(name, label, param, value, values):
+    """A fixed-size tuple: one small text field per element."""
+    fields = [
+        ft.TextField(value=f"{element:g}", width=90, text_align=ft.TextAlign.RIGHT, text_style=MONO)
+        for element in tuple(value)
+    ]
+
+    def read():
+        previous = tuple(values.get(name, param.default))
+        parsed = tuple(
+            parse_scalar(param, field.value, fallback=element)
+            for field, element in zip(fields, previous)
+        )
+        values[name] = parsed
+        return parsed
+
+    for field in fields:
+        field.on_change = lambda e: read()
+    row = ft.Row(
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[ft.Text(label, width=120, style=MONO), *fields],
+    )
+    return ControlBinding(row=row, read=read)
+
+
+def slider_row(label, slider, readout):
+    """A labelled slider with its live readout to the right."""
+    return ft.Row(
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            ft.Text(label, width=120, style=MONO),
+            ft.Container(slider, expand=True),
+            readout,
+        ],
+    )
+
+
+def cast(param, value):
+    """
+    Cast a slider value or one token of user text to the param's kind, rounding
+    to the nearest int; raises on unparseable text.
+
+    A tuple param's elements are floats, so they take the non-int branch.
+    """
+    return int(round(float(value))) if param.kind == "int" else float(value)
+
+
+def format_scalar(param, value):
+    """Display form of one value: thousands-grouped ints, compact floats."""
+    return f"{int(value):,}" if param.kind == "int" else f"{float(value):g}"
+
+
+def format_values(param, value):
+    """
+    Display form of a committed value or scan list for a comma field.
+
+    Ints are ungrouped here, unlike format_scalar: a thousands separator inside
+    a comma-separated list would parse back as two values.
+    """
+    entries = value if isinstance(value, list) else [value]
+    return ", ".join(f"{int(v):d}" if param.kind == "int" else f"{float(v):g}" for v in entries)
+
+
+def parse_scalar(param, text, fallback):
+    """Parse one value of the param's kind, keeping fallback on bad input."""
+    try:
+        return cast(param, text)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def parse_values(param, text, fallback):
+    """
+    Parse a comma-separated scan entry.
+
+    A single valid value returns a scalar (a one-point scan is just a run);
+    several return a list; no valid values return the fallback.
+    """
+    parsed = []
+    for token in str(text).split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            parsed.append(cast(param, token))
+        except ValueError:
+            return fallback
+    if not parsed:
+        return fallback
+    return parsed[0] if len(parsed) == 1 else parsed
