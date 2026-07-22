@@ -2,7 +2,7 @@
 
 Notable changes to labforge. Versions follow [semantic versioning](https://semver.org).
 
-## Unreleased
+## 0.2.0 — 2026-07-22
 
 - **`choice` param** — `Param(kind="choice", options=[...])` renders a Dropdown
   and commits the selected string like any other control. The default must be
