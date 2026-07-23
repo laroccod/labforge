@@ -58,10 +58,12 @@ def sample(mu=0.0, sigma=1.0, n=2000, seed=42):
 lab.add_worker(
     sample,
     {
-        "mu": Param(default=0.0, bounds=(-5, 5), scan=True),
-        "sigma": Param(default=1.0, bounds=(0.1, 4), scan=True),
-        "n": Param(kind="int", default=2000, bounds=(10, 100_000)),
-        "seed": "int",
+        "mu": Param(default=0.0, bounds=(-5, 5), scan=True, help="Mean of the distribution"),
+        "sigma": Param(
+            default=1.0, bounds=(0.1, 4), scan=True, help="Standard deviation of the distribution"
+        ),
+        "n": Param(kind="int", default=2000, bounds=(10, 100_000), help="Sample size of the draw"),
+        "seed": Param(kind="int", help="Seed of the random generator"),
     },
     name="Normal",
 )
@@ -169,10 +171,10 @@ def sample_gamma(shape=2.0, scale=1.0, n=2000, seed=42):
 lab.add_worker(
     sample_gamma,
     {
-        "shape": Param(default=2.0, bounds=(0.5, 10), scan=True),
-        "scale": Param(default=1.0, bounds=(0.1, 4), scan=True),
-        "n": Param(kind="int", default=2000, bounds=(10, 100_000)),
-        "seed": "int",
+        "shape": Param(default=2.0, bounds=(0.5, 10), scan=True, help="Shape parameter k"),
+        "scale": Param(default=1.0, bounds=(0.1, 4), scan=True, help="Scale parameter θ"),
+        "n": Param(kind="int", default=2000, bounds=(10, 100_000), help="Sample size of the draw"),
+        "seed": Param(kind="int", help="Seed of the random generator"),
     },
     name="Gamma",
 )

@@ -3,6 +3,9 @@ The app chrome: top bar, navigation rail or scroll layout, and the single
 LabState every page shares.
 """
 
+import asyncio
+import random
+
 import flet as ft
 
 from . import theme as themes
@@ -47,6 +50,104 @@ def color_scheme(theme):
         outline=theme.outline,
         outline_variant=theme.outline_variant,
         surface_tint=theme.accent,
+    )
+
+
+def animated_wordmark(lab, page):
+    """
+    The app mark and title for the top bar. The mark is static; the title
+    letters are individual tiles that blow apart when the pointer enters, float
+    around for as long as it stays, and spring back into the wordmark the
+    moment it leaves.
+
+    Floating is a chain of implicit animations: every beat each letter is given
+    a new random target, with the transition lasting exactly one beat, so a
+    letter never comes to rest between targets. The float task runs via
+    page.run_task so its updates reach the client (a bare thread's update is
+    silently dropped); an epoch counter keeps a stale float loop from a
+    previous hover writing over the current one.
+    """
+    blow = ft.Animation(500, ft.AnimationCurve.EASE_OUT_CUBIC)
+    drift = ft.Animation(1200, ft.AnimationCurve.EASE_IN_OUT_SINE)
+    spring = ft.Animation(400, ft.AnimationCurve.EASE_OUT_BACK)
+    letters = [
+        ft.Container(
+            content=ft.Text(
+                letter,
+                style=ft.TextStyle(size=14, weight=ft.FontWeight.W_700, font_family=ui.FONT_MONO),
+            ),
+            offset=ft.Offset(0, 0),
+            rotate=ft.Rotate(0),
+            animate_offset=spring,
+            animate_rotation=spring,
+        )
+        for letter in lab.title.upper()
+    ]
+    mark = ft.Container(
+        width=30,
+        height=30,
+        border_radius=2,
+        bgcolor=ft.Colors.PRIMARY,
+        alignment=ft.Alignment.CENTER,
+        content=ft.Icon(lab.icon or ft.Icons.VIEW_IN_AR, size=18, color=ft.Colors.ON_PRIMARY),
+    )
+    hover = {"on": False, "epoch": 0}
+
+    def animate_with(animation):
+        for letter in letters:
+            letter.animate_offset = animation
+            letter.animate_rotation = animation
+
+    def scatter():
+        # Offsets are fractions of the letter tile — a wide throw sideways, a
+        # shallower one vertically, so the cloud stays inside the top bar.
+        for letter in letters:
+            letter.offset = ft.Offset(random.uniform(-1.5, 1.5), random.uniform(-0.6, 0.6))
+            letter.rotate = ft.Rotate(random.uniform(-0.6, 0.6))
+
+    def settle():
+        animate_with(spring)
+        for letter in letters:
+            letter.offset = ft.Offset(0, 0)
+            letter.rotate = ft.Rotate(0)
+
+    async def float_around(epoch):
+        # Blow apart fast, then drift: each beat hands every letter a new
+        # target reached in exactly one beat, so the motion never pauses.
+        animate_with(blow)
+        scatter()
+        page.update()
+        await asyncio.sleep(0.5)
+        animate_with(drift)
+        while hover["on"] and hover["epoch"] == epoch:
+            scatter()
+            page.update()
+            await asyncio.sleep(1.2)
+        # Reset only if no newer hover has taken over the letters.
+        if not hover["on"]:
+            settle()
+            page.update()
+
+    def on_hover(e):
+        # Flet 0.86 sends hover data as a boolean: True on enter, False on exit.
+        entering = str(e.data).lower() == "true"
+        hover["on"] = entering
+        if entering:
+            hover["epoch"] += 1
+            page.run_task(float_around, hover["epoch"])
+        else:
+            settle()
+            page.update()
+
+    # Row spacing stands in for the wordmark's letterspacing, since each letter
+    # now carries its own tile.
+    return ft.Container(
+        on_hover=on_hover,
+        content=ft.Row(
+            spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[mark, ft.Row(spacing=4, controls=letters)],
+        ),
     )
 
 
@@ -146,29 +247,31 @@ def build_main(lab, layout="pages", theme=themes.DEFAULT):
         # The one state object every page reads from and writes to.
         state = LabState(lab)
 
-        # App mark: the lab's icon (a volume mark by default) on a sharp accent tile.
-        app_mark = ft.Container(
-            width=30,
-            height=30,
-            border_radius=2,
-            bgcolor=ft.Colors.PRIMARY,
-            alignment=ft.Alignment.CENTER,
-            content=ft.Icon(lab.icon or ft.Icons.VIEW_IN_AR, size=18, color=ft.Colors.ON_PRIMARY),
-        )
-
         # Layout builds the body. Worker switching happens inside the pages
         # (Simulation tabs, or the Theory model selector), so the top bar needs
         # no rebuild hook.
+        # The explicit alignment loosens the pane's constraints, so a page
+        # column's reading-measure width holds instead of being stretched to
+        # the pane.
         if layout == "scroll":
             # One continuous page under the top bar; no rail, no navigation.
-            body = ft.Container(expand=True, padding=24, content=scroll.build(state, page))
+            body = ft.Container(
+                expand=True,
+                padding=24,
+                alignment=ft.Alignment.TOP_LEFT,
+                content=scroll.build(state, page),
+            )
         else:
-            # Right-hand pane; its single child is swapped on navigation.
-            content = ft.Container(expand=True, padding=24)
+            # Right-hand pane; its single child is swapped on navigation, and
+            # the switcher cross-fades the outgoing page into the incoming one.
+            switcher = ui.fading_pane(duration=70, expand=True)
+            content = ft.Container(
+                expand=True, padding=24, alignment=ft.Alignment.TOP_LEFT, content=switcher
+            )
 
             def show_page(index):
                 # Rebuild-on-navigate: build fresh so the page re-reads LabState.
-                content.content = PAGES[index][2](state, page)
+                switcher.content = PAGES[index][2](state, page)
 
             def on_nav_change(e):
                 show_page(e.control.selected_index)
@@ -227,22 +330,7 @@ def build_main(lab, layout="pages", theme=themes.DEFAULT):
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Row(
-                        spacing=12,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            app_mark,
-                            ft.Text(
-                                lab.title.upper(),
-                                style=ft.TextStyle(
-                                    size=14,
-                                    weight=ft.FontWeight.W_700,
-                                    letter_spacing=3,
-                                    font_family=ui.FONT_MONO,
-                                ),
-                            ),
-                        ],
-                    ),
+                    animated_wordmark(lab, page),
                     worker_readout,
                 ],
             ),

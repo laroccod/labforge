@@ -36,7 +36,7 @@ def sample(mu=0.0, sigma=1.0, n=2000, seed=42):
 
 
 lab.add_worker(sample, {
-    "mu": Param(default=0.0, bounds=(-5, 5), scan=True),
+    "mu": Param(default=0.0, bounds=(-5, 5), scan=True, help="Mean of the distribution"),
     "sigma": Param(default=1.0, bounds=(0.1, 4), scan=True),
     "n": Param(kind="int", default=2000, bounds=(10, 100_000)),
     "seed": "int",
@@ -75,7 +75,9 @@ lab.open()
 That is the whole app. `lab.open()` opens a native window with four pages —
 Theory, Simulation, Visualization, Analysis — a slider for every bounded
 parameter, a Run button, and tabs for each registered visualization and
-analysis.
+analysis. Content keeps a book-like reading measure, navigation and result
+updates cross-fade rather than cut, and every page is explorable before the
+first Run.
 
 An extended version of this example — same lab plus a fitted-density overlay
 and a Q-Q plot tab — lives at [`examples/demo_lab.py`](examples/demo_lab.py):
@@ -100,6 +102,12 @@ spec nothing:
 | `Param(default=1.0)` / `"scalar"` / `"int"` | validated text field |
 | `Param(..., scan=True)` / `"scalar or array"` / `"int or array"` | scannable (see below) |
 | `"N-tuple"` (e.g. `"2-tuple"`) | one field per element |
+| `Param(kind="choice", options=["a", "b"])` | dropdown |
+
+Every `Param` also takes `label=` to rename its control and `help=` for a
+tooltip on the control's label. Pressing Enter in any text field runs the
+section it belongs to, and an entry that fails to parse flags the field while
+the last good value stays live.
 
 Validation happens at registration: unknown spec keys, defaults outside
 bounds, or a scan spec on a non-worker function raise `ValueError` when the
@@ -108,7 +116,8 @@ app is assembled, never mid-use.
 **Parameter scans.** A kwarg declared `scan=True` gets a scan toggle (bounded)
 or a comma-separated field (unbounded). Enter `0, 1, 2` and `labforge` calls the
 worker once per point of the cartesian grid across all scanned parameters —
-the worker itself always receives scalars. Downstream functions then receive a
+the worker itself always receives scalars. A long scan reports its progress in
+the status line as the grid fills in. Downstream functions then receive a
 `ScanResult`: a list of `(params, result)` records with `keys`, `values()` and
 `axis(name)` helpers, distinguished with `isinstance(data, ScanResult)`.
 

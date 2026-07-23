@@ -6,12 +6,16 @@ from dataclasses import dataclass
 
 import flet as ft
 
-from .ui import FONT_MONO
+from .ui import FONT_MONO, fading_pane
 
 # Parameter names and values are data, so every label, readout and field in a
 # control row speaks the app's monospace voice.
 MONO = ft.TextStyle(size=13, font_family=FONT_MONO)
 MONO_LABEL = ft.TextStyle(size=12, font_family=FONT_MONO)
+
+# Shared width of the leading label cell, so the control rows of a card align
+# into a clean two-column grid.
+LABEL_WIDTH = 120
 
 
 @dataclass
@@ -32,7 +36,7 @@ class ControlBinding:
     read: callable
 
 
-def build_control(name, param, values, page, on_change=None):
+def build_control(name, param, values, page, on_change=None, on_submit=None):
     """
     Build the control row for one Param.
 
@@ -49,11 +53,15 @@ def build_control(name, param, values, page, on_change=None):
         The live values dict (state.worker_values or a per-tab kwargs dict);
         read at build time and committed to on every change.
     page: ft.Page
-        Needed to flush live readout updates during a slider drag.
+        Needed to flush live readout and parse-error updates.
     on_change: callable
         Optional callback(value) fired after a choice commits — the Theory-page
         selector uses it to rebuild the markdown its selection drives. Ignored
         by every other kind.
+    on_submit: callable
+        Optional zero-arg callback fired when Enter is pressed in a text
+        field; the section builders pass their Run/Render/Compute action so a
+        keyboard edit can commit and run in one stroke.
 
     Returns
     -------
@@ -64,17 +72,45 @@ def build_control(name, param, values, page, on_change=None):
     if param.kind == "choice":
         return choice_control(name, label, param, value, values, on_change)
     if param.kind == "tuple":
-        return tuple_control(name, label, param, value, values)
+        return tuple_control(name, label, param, value, values, page, on_submit)
     if param.bounds is None and not param.scan:
-        return text_control(name, label, param, value, values)
+        return text_control(name, label, param, value, values, page, on_submit)
     if param.bounds is None:
-        return scan_control(name, label, param, value, values)
+        return scan_control(name, label, param, value, values, page, on_submit)
     if not param.scan:
         return slider_control(name, label, param, value, values, page)
-    return toggled_control(name, label, param, value, values, page)
+    return toggled_control(name, label, param, value, values, page, on_submit)
 
 
-def slider_control(name, label, param, value, values, page):
+def label_cell(label, param):
+    """The fixed-width row label; carries the param's help as a tooltip."""
+    return ft.Text(label, width=LABEL_WIDTH, style=MONO, tooltip=param.help)
+
+
+def label_row(label, param, body):
+    """The uniform control row: a label cell, then the control body."""
+    return ft.Row(
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[label_cell(label, param), body],
+    )
+
+
+def text_field(value, width, on_submit=None, hint=None):
+    """A text field in the house style: hairline outline, near-square corners."""
+    field = ft.TextField(
+        value=value,
+        width=width,
+        text_style=MONO,
+        border_color=ft.Colors.OUTLINE_VARIANT,
+        border_radius=2,
+        hint_text=hint,
+    )
+    if on_submit is not None:
+        field.on_submit = lambda e: on_submit()
+    return field
+
+
+def slider_control(name, label, param, value, values, page, labelled=True):
     """A bounded param: a slider with a live readout."""
     lo, hi = param.bounds
     if isinstance(value, list):  # scan values left over from a stale spec edit
@@ -104,73 +140,80 @@ def slider_control(name, label, param, value, values, page):
     def read():
         return cast(param, slider.value)
 
-    return ControlBinding(row=slider_row(label, slider, readout), read=read)
+    # The bare body is what toggled_control swaps in and out of its holder,
+    # which keeps the label cell fixed while the control behind it changes.
+    body = ft.Row(
+        expand=True,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[ft.Container(slider, expand=True), readout],
+    )
+    row = label_row(label, param, body) if labelled else body
+    return ControlBinding(row=row, read=read)
 
 
-def text_control(name, label, param, value, values):
+def text_control(name, label, param, value, values, page, on_submit):
     """An unbounded scalar or int: a validated text field."""
-    field = ft.TextField(
-        label=label,
-        value=format_scalar(param, value),
-        width=160,
-        text_style=MONO,
-        label_style=MONO_LABEL,
-    )
+    field = text_field(format_scalar(param, value), 160, on_submit)
 
     def read():
-        parsed = parse_scalar(param, field.value, fallback=values.get(name, param.default))
+        fallback = values.get(name, param.default)
+        parsed, ok = parse_scalar(param, field.value, fallback)
+        field.error = None if ok else f"invalid, kept {format_scalar(param, fallback)}"
         values[name] = parsed
         return parsed
 
-    field.on_change = lambda e: read()
-    return ControlBinding(row=field, read=read)
+    def on_change(e):
+        read()
+        page.update()  # paint or clear the parse-error flag as the user types
+
+    field.on_change = on_change
+    return ControlBinding(row=label_row(label, param, field), read=read)
 
 
-def scan_control(name, label, param, value, values):
+def scan_control(name, label, param, value, values, page, on_submit):
     """An unbounded scan param: always a comma-separated values field."""
-    field = ft.TextField(
-        label=f"{label} (comma-separated to scan)",
-        value=format_values(param, value),
-        width=260,
-        text_style=MONO,
-        label_style=MONO_LABEL,
-    )
+    field = text_field(format_values(param, value), 260, on_submit, hint="comma-separated to scan")
 
     def read():
-        parsed = parse_values(param, field.value, fallback=values.get(name, param.default))
+        fallback = values.get(name, param.default)
+        parsed, ok = parse_values(param, field.value, fallback)
+        field.error = None if ok else f"invalid, kept {format_values(param, fallback)}"
         values[name] = parsed
         return parsed
 
-    field.on_change = lambda e: read()
-    return ControlBinding(row=field, read=read)
+    def on_change(e):
+        read()
+        page.update()
+
+    field.on_change = on_change
+    return ControlBinding(row=label_row(label, param, field), read=read)
 
 
-def toggled_control(name, label, param, value, values, page):
+def toggled_control(name, label, param, value, values, page, on_submit):
     """
     A bounded scan param: a slider row with a scan Switch.
 
-    The switch swaps the content of a mounted Container between the slider and a
-    comma-list field — the same mutate-in-place pattern the pages use for their
-    result panes. Starting from a list value (a scan committed earlier) restores
-    scan mode.
+    The switch swaps the content of a mounted fading pane between the slider
+    and a comma-list field — the same mutate-in-place pattern the pages use for
+    their result panes, so the mode change fades instead of cutting. Starting
+    from a list value (a scan committed earlier) restores scan mode.
     """
     scanning = isinstance(value, list)
     slider_binding = slider_control(
-        name, label, param, value if not scanning else param.default, values, page
+        name, label, param, value if not scanning else param.default, values, page, labelled=False
     )
-    field = ft.TextField(
-        label=f"{label} values",
-        value=format_values(param, value),
-        width=220,
-        text_style=MONO,
-        label_style=MONO_LABEL,
-    )
-    holder = ft.Container(content=field if scanning else slider_binding.row, expand=True)
+    field = text_field(format_values(param, value), 220, on_submit, hint="comma-separated to scan")
+    # The switcher centers a lone child, so the field rides in a left-aligning
+    # box to line up with the other rows' controls.
+    field_box = ft.Container(content=field, alignment=ft.Alignment.CENTER_LEFT)
+    holder = fading_pane(field_box if scanning else slider_binding.row, duration=200, expand=True)
     switch = ft.Switch(label="SCAN", value=scanning, label_position=ft.LabelPosition.RIGHT)
 
     def read():
         if switch.value:
-            parsed = parse_values(param, field.value, fallback=values.get(name, param.default))
+            fallback = values.get(name, param.default)
+            parsed, ok = parse_values(param, field.value, fallback)
+            field.error = None if ok else f"invalid, kept {format_values(param, fallback)}"
         else:
             parsed = slider_binding.read()
         values[name] = parsed
@@ -180,41 +223,49 @@ def toggled_control(name, label, param, value, values, page):
         if switch.value:
             # Carry the slider's value across, so switching to scan starts there.
             field.value = format_values(param, slider_binding.read())
-            holder.content = field
+            holder.content = field_box
         else:
             holder.content = slider_binding.row
         read()
         page.update()
 
+    def on_field_change(e):
+        read()
+        page.update()
+
     switch.on_change = on_toggle
-    field.on_change = lambda e: read()
-    row = ft.Row(vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[holder, switch])
+    field.on_change = on_field_change
+    row = ft.Row(
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[label_cell(label, param), holder, switch],
+    )
     return ControlBinding(row=row, read=read)
 
 
-def tuple_control(name, label, param, value, values):
+def tuple_control(name, label, param, value, values, page, on_submit):
     """A fixed-size tuple: one small text field per element."""
-    fields = [
-        ft.TextField(value=f"{element:g}", width=90, text_align=ft.TextAlign.RIGHT, text_style=MONO)
-        for element in tuple(value)
-    ]
+    fields = [text_field(f"{element:g}", 90, on_submit) for element in tuple(value)]
+    for field in fields:
+        field.text_align = ft.TextAlign.RIGHT
 
     def read():
         previous = tuple(values.get(name, param.default))
-        parsed = tuple(
-            parse_scalar(param, field.value, fallback=element)
-            for field, element in zip(fields, previous)
-        )
-        values[name] = parsed
-        return parsed
+        parsed = []
+        for field, element in zip(fields, previous):
+            element_value, ok = parse_scalar(param, field.value, element)
+            field.error = None if ok else f"kept {element:g}"
+            parsed.append(element_value)
+        values[name] = tuple(parsed)
+        return values[name]
+
+    def on_change(e):
+        read()
+        page.update()
 
     for field in fields:
-        field.on_change = lambda e: read()
-    row = ft.Row(
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=[ft.Text(label, width=120, style=MONO), *fields],
-    )
-    return ControlBinding(row=row, read=read)
+        field.on_change = on_change
+    body = ft.Row(vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=fields)
+    return ControlBinding(row=label_row(label, param, body), read=read)
 
 
 def choice_control(name, label, param, value, values, on_change):
@@ -237,6 +288,7 @@ def choice_control(name, label, param, value, values, on_change):
         border_color=ft.Colors.OUTLINE_VARIANT,
         border_radius=2,
         width=260,
+        tooltip=param.help,
     )
 
     def read():
@@ -250,18 +302,6 @@ def choice_control(name, label, param, value, values, on_change):
 
     dropdown.on_select = on_select
     return ControlBinding(row=dropdown, read=read)
-
-
-def slider_row(label, slider, readout):
-    """A labelled slider with its live readout to the right."""
-    return ft.Row(
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=[
-            ft.Text(label, width=120, style=MONO),
-            ft.Container(slider, expand=True),
-            readout,
-        ],
-    )
 
 
 def cast(param, value):
@@ -291,19 +331,25 @@ def format_values(param, value):
 
 
 def parse_scalar(param, text, fallback):
-    """Parse one value of the param's kind, keeping fallback on bad input."""
+    """
+    Parse one value of the param's kind into (value, ok).
+
+    Bad input keeps the fallback with ok False, so the caller can hold the last
+    good value live while flagging the field.
+    """
     try:
-        return cast(param, text)
+        return cast(param, text), True
     except (TypeError, ValueError):
-        return fallback
+        return fallback, False
 
 
 def parse_values(param, text, fallback):
     """
-    Parse a comma-separated scan entry.
+    Parse a comma-separated scan entry into (value, ok).
 
-    A single valid value returns a scalar (a one-point scan is just a run);
-    several return a list; no valid values return the fallback.
+    A single valid value parses to a scalar (a one-point scan is just a run)
+    and several to a list; any bad token, or no token at all, keeps the
+    fallback with ok False.
     """
     parsed = []
     for token in str(text).split(","):
@@ -313,7 +359,7 @@ def parse_values(param, text, fallback):
         try:
             parsed.append(cast(param, token))
         except ValueError:
-            return fallback
+            return fallback, False
     if not parsed:
-        return fallback
-    return parsed[0] if len(parsed) == 1 else parsed
+        return fallback, False
+    return (parsed[0] if len(parsed) == 1 else parsed), True

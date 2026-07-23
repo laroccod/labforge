@@ -52,3 +52,16 @@ def test_context_injected_only_when_declared():
     assert scanned.values() == [(1.0, ctx), (2.0, ctx)]
     # A worker without a context param is unaffected by a passed context.
     assert run_worker(worker, {"mu": 0.0, "sigma": 1.0, "n": 5}, context=ctx) == (0.0, 1.0, 5)
+
+
+def test_progress_reports_each_grid_point_and_skips_scalar_runs():
+    calls = []
+
+    def record(done, total):
+        calls.append((done, total))
+
+    run_worker(worker, {"mu": [0.0, 1.0], "sigma": [1.0, 2.0, 3.0], "n": 10}, progress=record)
+    assert calls == [(k, 6) for k in range(1, 7)]
+    calls.clear()
+    run_worker(worker, {"mu": 0.0, "sigma": 1.0, "n": 10}, progress=record)
+    assert calls == []  # a scalar run never reports

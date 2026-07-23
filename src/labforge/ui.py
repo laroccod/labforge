@@ -16,6 +16,12 @@ FONT_BODY = "Inter"
 FONT_MONO = "Roboto Mono"
 FONT_ASSETS = {FONT_BODY: "fonts/Inter.ttf", FONT_MONO: "fonts/RobotoMono.ttf"}
 
+# The reading measure: every page constrains its content column to this width,
+# so prose keeps a comfortable line length and control rows stay compact instead
+# of stretching across the window. Chosen to fit the content pane at the
+# shell's minimum window width.
+MEASURE = 720
+
 
 def image(data, width=None, height=None):
     """
@@ -24,6 +30,16 @@ def image(data, width=None, height=None):
     """
     # Flet 0.86 Image takes base64 directly on src (there is no src_base64).
     return ft.Image(src=data, width=width, height=height)
+
+
+def fitted_image(data):
+    """
+    A figure image capped at the reading measure: an oversize figure scales
+    down to fit (rendered at figures.RENDER_DPI it stays crisp on high-dpi
+    displays), a smaller one keeps its intrinsic size, and either sits
+    centered in its box.
+    """
+    return ft.Image(src=data, width=MEASURE, fit=ft.BoxFit.SCALE_DOWN)
 
 
 def equation(latex, fontsize=18):
@@ -58,10 +74,16 @@ def subheading(text):
 
 
 def mono(text, size=12, color=ft.Colors.ON_SURFACE_VARIANT):
-    """Monospace telemetry text for status lines and small readouts."""
+    """
+    Monospace telemetry text for status lines and small readouts.
+
+    The colour rides on the Text, not its style, so a status line can flip to
+    the error tone by assigning .color on the mounted control.
+    """
     return ft.Text(
         text,
-        style=ft.TextStyle(size=size, font_family=FONT_MONO, letter_spacing=0.5, color=color),
+        color=color,
+        style=ft.TextStyle(size=size, font_family=FONT_MONO, letter_spacing=0.5),
     )
 
 
@@ -133,6 +155,29 @@ def data_table(columns, rows):
     )
 
 
+def centered(control):
+    """Center a fixed-size control — an equation or figure image — in the measure."""
+    return ft.Row(alignment=ft.MainAxisAlignment.CENTER, controls=[control])
+
+
+def fading_pane(content=None, duration=250, expand=False):
+    """
+    A pane that cross-fades whenever its content control is replaced.
+
+    The house pattern for mutate-in-place swaps: the pane stays mounted and its
+    .content is reassigned, so an open tab survives, but the change reads as a
+    fade rather than a hard cut. Reassigning the same control instance is a
+    no-op, so a repaint that produces the same control does not flash.
+    """
+    return ft.AnimatedSwitcher(
+        content=content if content is not None else ft.Container(),
+        duration=duration,
+        reverse_duration=duration,
+        transition=ft.AnimatedSwitcherTransition.FADE,
+        expand=expand,
+    )
+
+
 def needs_run():
     """Instrument-panel status line shown before the worker has been run."""
     return card(
@@ -160,10 +205,11 @@ def needs_run():
 def page_scaffold(title, controls):
     """
     Scrollable page body: a heading above the supplied controls, in a column
-    that fills the content pane and scrolls when tall.
+    constrained to the reading measure that scrolls when tall.
     """
     return ft.Column(
         expand=True,
+        width=MEASURE,
         scroll=ft.ScrollMode.AUTO,
         spacing=16,
         controls=[heading(title), *controls],

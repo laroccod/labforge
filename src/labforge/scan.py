@@ -5,6 +5,7 @@ Pure Python, no Flet — unit-testable without a UI.
 """
 
 import itertools
+import math
 from dataclasses import dataclass
 
 from .param import CONTEXT_PARAM, wants_context
@@ -45,7 +46,7 @@ class ScanResult:
         return list(dict.fromkeys(params[key] for params, _ in self.points))
 
 
-def run_worker(func, values, context=None):
+def run_worker(func, values, context=None, progress=None):
     """
     Call the worker once, or over the cartesian grid of its scan axes.
 
@@ -62,6 +63,9 @@ def run_worker(func, values, context=None):
     context: dict
         The lab's shared context, injected as a `context` kwarg only when func
         declares that parameter; the scan grid never sweeps it.
+    progress: callable
+        Optional progress(done, total), called after each grid point of a scan
+        so a UI can report a long sweep; never called for a scalar run.
 
     Returns
     -------
@@ -74,8 +78,11 @@ def run_worker(func, values, context=None):
         return func(**values, **shared)
 
     fixed = {key: value for key, value in values.items() if key not in axes}
+    total = math.prod(len(axis) for axis in axes.values())
     points = []
     for combo in itertools.product(*axes.values()):
         params = dict(fixed, **dict(zip(axes.keys(), combo)))
         points.append((params, func(**params, **shared)))
+        if progress is not None:
+            progress(len(points), total)
     return ScanResult(keys=list(axes.keys()), points=points)

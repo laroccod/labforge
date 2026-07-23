@@ -172,7 +172,7 @@ class LabState:
             return any(workspace.n_points > 0 for workspace in self.workspaces.values())
         return self.workspace.n_points > 0
 
-    def run(self, worker_name=None):
+    def run(self, worker_name=None, progress=None):
         """Run one worker over its values and record a telemetry line.
 
         Parameters
@@ -180,12 +180,17 @@ class LabState:
         worker_name: str
             The worker to run; the active worker when omitted. Running marks it
             the most recently run, which the shared viz of a tabs-view lab read.
+        progress: callable
+            Optional progress(done, total) forwarded to the scan engine, called
+            after each grid point of a scan.
         """
         name = worker_name or self.active
         workspace = self.workspaces[name]
         spec = self.lab.workers[name]
         start = time.perf_counter()
-        workspace.data = run_worker(spec.func, workspace.worker_values, context=self.context)
+        workspace.data = run_worker(
+            spec.func, workspace.worker_values, context=self.context, progress=progress
+        )
         workspace.n_points = len(workspace.data) if isinstance(workspace.data, ScanResult) else 1
         elapsed = time.perf_counter() - start
         # Report the grid the author actually asked for, not just the point count.

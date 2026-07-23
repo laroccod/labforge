@@ -29,6 +29,9 @@ class Param:
         Tuple length (kind "tuple" only).
     label: str
         Control label; the kwarg name when omitted.
+    help: str
+        One-line explanation of the parameter, surfaced as a tooltip on the
+        control's label.
     options: list
         The allowed strings of a "choice" param; rendered as a Dropdown.
     """
@@ -40,6 +43,7 @@ class Param:
     scan: bool = False
     size: int = 2
     label: str = None
+    help: str = None
     options: list = None
 
 

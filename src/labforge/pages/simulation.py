@@ -3,6 +3,7 @@ Simulation page: the worker's controls, a Run action and a status line.
 """
 
 import asyncio
+import time
 from collections import namedtuple
 
 import flet as ft
@@ -34,12 +35,15 @@ def section(state, page, after_run=None, worker_name=None):
     worker = state.lab.workers[name]
     values = state.workspaces[name].worker_values
     bindings = {
-        param_name: build_control(param_name, param, values, page)
+        param_name: build_control(
+            param_name, param, values, page, on_submit=lambda: page.run_task(perform_run)
+        )
         for param_name, param in worker.params.items()
     }
     # Flet 0.86 has no SnackBar, so status lives in the tree where page.update()
-    # always reaches it.
+    # always reaches it. The opacity animation carries the RUNNING pulse.
     status = ui.mono(state.workspaces[name].run_summary)
+    status.animate_opacity = ft.Animation(600, ft.AnimationCurve.EASE_IN_OUT)
     run_button = ui.action_button("Run", lambda e: page.run_task(perform_run))
 
     async def perform_run():
@@ -48,18 +52,52 @@ def section(state, page, after_run=None, worker_name=None):
         # slow part — to an executor so the event loop stays live and shows the
         # RUNNING line. Figure rendering in after_run stays on this loop thread,
         # keeping pyplot's global state touched by one thread only.
+        loop = asyncio.get_running_loop()
+        last_paint = {"t": 0.0}
+
+        def report(done, total):
+            # Called from the executor thread after each grid point: repaint on
+            # the loop (a bare thread's update is dropped), throttled so a fast
+            # scan does not flood the client with frames.
+            now = time.monotonic()
+            if done < total and now - last_paint["t"] < 0.1:
+                return
+            last_paint["t"] = now
+
+            def paint():
+                status.value = f"RUNNING · {done}/{total}"
+                page.update()
+
+            loop.call_soon_threadsafe(paint)
+
+        async def pulse():
+            # Breathe the status line while the run is in flight; the fade
+            # length matches the beat, so the pulse is continuous. The loop
+            # keys off the disabled Run button and restores full opacity on
+            # its way out.
+            while run_button.disabled:
+                status.opacity = 0.35 if (status.opacity or 1) == 1 else 1
+                page.update()
+                await asyncio.sleep(0.6)
+            status.opacity = 1
+            page.update()
+
         for param_name, binding in bindings.items():
             values[param_name] = binding.read()
         run_button.disabled = True
         status.value = "RUNNING…"
+        status.color = ft.Colors.ON_SURFACE_VARIANT
+        status.opacity = 1
+        asyncio.create_task(pulse())
         page.update()
         try:
-            await asyncio.get_running_loop().run_in_executor(None, state.run, name)
+            await loop.run_in_executor(None, lambda: state.run(name, progress=report))
             status.value = state.workspaces[name].run_summary
             if after_run is not None:
                 after_run()
         except Exception as err:  # surface the worker's failure, keep the app alive
             status.value = f"Worker raised {type(err).__name__}: {err}"
+            status.color = ft.Colors.ERROR
         finally:
             run_button.disabled = False
         page.update()
@@ -107,12 +145,13 @@ def build(state, page):
 def build_tabbed(state, page, names):
     """
     Build the named workers as tabs, one control set per worker, against one
-    shared context. Reuses panel.build (the viz/analysis tabbed builder) with its
-    run gate lifted — the Simulation page is where the running happens.
+    shared context. Reuses panel.build, the viz/analysis tabbed builder; the
+    run gate lives in the output slots those pages add, so worker tabs carry
+    none.
     """
     entries = [WorkerTab(title=name) for name in names]
 
     def worker_section(entry, state, page):
         return section(state, page, worker_name=entry.title)
 
-    return panel.build("Simulation", entries, state, page, worker_section, EMPTY, gated=False)
+    return panel.build("Simulation", entries, state, page, worker_section, EMPTY)

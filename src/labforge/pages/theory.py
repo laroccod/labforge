@@ -32,8 +32,12 @@ def render_source(source):
         # split() alternates prose and captures, so odd indices are the equations.
         # An equation collapses to one line: matplotlib renders each line of a
         # multi-line string separately, and a line with an unmatched $ renders
-        # as literal text rather than math.
-        controls.append(ui.equation(" ".join(piece.split())) if index % 2 else ui.body(piece))
+        # as literal text rather than math. Displayed math sits centered in the
+        # measure, as in print.
+        if index % 2:
+            controls.append(ui.centered(ui.equation(" ".join(piece.split()))))
+        else:
+            controls.append(ui.body(piece))
     return controls
 
 

@@ -16,10 +16,11 @@ def section_controls(entry, state, page):
     One analysis's description, kwarg controls, Compute action and result pane,
     as a list of controls. Shared by the tabbed page and the scroll layout.
     """
-    pane = ft.Container()
+    pane = ui.fading_pane()
 
     def show(value):
-        # Swap only the content: the mounted Container stays, so the tab survives.
+        # Swap only the content: the mounted pane stays, so the tab survives,
+        # and each Compute cross-fades the new result over the old.
         pane.content = render_result(value)
 
     return panel.section_controls(
@@ -60,7 +61,7 @@ def render_result(value):
     if isinstance(value, str):
         return ui.body(value)
     if is_figure(value):
-        return ui.image(figure_to_base64(unpack_figure(value)))
+        return ui.fitted_image(figure_to_base64(unpack_figure(value)))
     return ui.body(f"`{value!r}`")
 
 

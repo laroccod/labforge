@@ -58,11 +58,11 @@ def test_all_pages_build_before_any_run():
     page = FakePage()
     for build in (theory.build, simulation.build, visualization.build, analysis.build):
         assert build(state, page) is not None
-    # Viz and Analysis show the run gate, not tabs, before the first run.
-    gate = find_first(
-        visualization.build(state, page),
-        lambda c: isinstance(c, ft.Text) and c.value == "NO DATA",
-    )
+    # Viz and Analysis tabs are explorable before the first run; the run gate
+    # sits in each entry's output slot rather than replacing the page.
+    viz_tree = visualization.build(state, page)
+    assert find_first(viz_tree, lambda c: isinstance(c, ft.TabBar)) is not None
+    gate = find_first(viz_tree, lambda c: isinstance(c, ft.Text) and c.value == "NO DATA")
     assert gate is not None
 
 
@@ -125,8 +125,8 @@ def test_scroll_layout_builds_and_gates():
 def test_scroll_layout_run_refreshes_results_in_place():
     state = fresh_state()
     tree = scroll.build(state, FakePage())
-    # before the run, the only FilledButton in the tree is Run (the gate hides
-    # the viz/analysis sections and their Render/Compute buttons)
+    # the Simulation section precedes the results, so the first FilledButton in
+    # depth-first order is Run even with the Render/Compute buttons now built
     button = find_first(tree, lambda c: isinstance(c, ft.FilledButton))
     button.on_click(None)
     assert state.has_data()

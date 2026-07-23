@@ -2,6 +2,38 @@
 
 Notable changes to labforge. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **Wordmark animation** — hovering the app title blows its letters apart and
+  keeps them floating until the pointer leaves; they spring back into the
+  wordmark on exit.
+- **Motion** — rail navigation cross-fades between pages; a re-rendered figure
+  or recomputed result fades over its predecessor instead of flashing; the run
+  gate dissolves into the first output; the scan toggle fades between slider
+  and comma field; and the RUNNING status pulses gently while a run is in
+  flight.
+- **Reading measure** — every page constrains its content to a 720 px column,
+  so prose keeps a comfortable line length and control rows stay compact
+  instead of stretching across the window. Displayed equations sit centered in
+  the measure, and figures scale down to fit it (staying crisp on high-dpi
+  screens) instead of clipping at the pane edge.
+- **Uniform control rows** — text fields share the sliders' fixed label column
+  and the house field styling (hairline outline, square corners), and a new
+  `help` string on `Param` surfaces as a tooltip on the row label.
+- **Parse feedback** — an unreadable text or comma-list entry now flags the
+  field ("invalid, kept ...") while the last good value stays live, instead of
+  falling back silently.
+- **Error tone** — a worker, viz or analysis exception shows its status line in
+  the theme's error colour rather than the muted telemetry tone.
+- **Scan progress** — a running scan reports `RUNNING · k/N` as the grid fills
+  in; `run_worker` and `LabState.run` accept an optional `progress(done, total)`
+  callback.
+- **Explorable pre-run pages** — the Visualization and Analysis tabs, their
+  descriptions and controls now show before the first Run; the NO DATA card
+  sits only in the output slot. Tab labels speak the app's monospace voice.
+- **Enter to run** — pressing Enter in any text field fires its section's
+  Run/Render/Compute action.
+
 ## 0.2.0 — 2026-07-22
 
 - **`choice` param** — `Param(kind="choice", options=[...])` renders a Dropdown

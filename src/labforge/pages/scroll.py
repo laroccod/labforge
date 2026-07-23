@@ -14,10 +14,7 @@ def divider():
 
 
 def results_content(state, page):
-    """The visualization and analysis sections, or the run gate before data."""
-    if not state.has_data():
-        return ft.Column(spacing=16, controls=[ui.heading("Results"), ui.needs_run()])
-
+    """The visualization and analysis sections; each gates its own output slot."""
     # Both kinds stack the same way; only the section builder differs.
     sections = [(entry, visualization.section_controls) for entry in state.vizzes]
     sections += [(entry, analysis.section_controls) for entry in state.analyses]
@@ -58,6 +55,7 @@ def build(state, page):
     refresh()
     return ft.Column(
         expand=True,
+        width=ui.MEASURE,
         scroll=ft.ScrollMode.AUTO,
         spacing=16,
         controls=[
