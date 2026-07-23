@@ -2,7 +2,7 @@
 
 Notable changes to labforge. Versions follow [semantic versioning](https://semver.org).
 
-## Unreleased
+## 0.3.0 — 2026-07-22
 
 - **Wordmark animation** — hovering the app title blows its letters apart and
   keeps them floating until the pointer leaves; they spring back into the
